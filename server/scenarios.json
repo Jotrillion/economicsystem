@@ -1,0 +1,106 @@
+[
+  {
+    "id": "3ab954cc-2afa-4f74-b243-d5337183f6b5",
+    "name": "Simulation en direct",
+    "description": "Simulation dynamique des politiques générée à partir des paramètres actuels.",
+    "policies": {
+      "basicAccess": true,
+      "greenInfra": true,
+      "cooperativeCredit": true,
+      "publicData": true
+    },
+    "metrics": {
+      "growth": 10.3,
+      "trust": 100,
+      "inflation": 1.8,
+      "employment": 98,
+      "utility": 87,
+      "resilience": 93,
+      "inclusion": 99,
+      "capital": 1.7,
+      "productivity": 86,
+      "distribution": 100,
+      "stability": 83,
+      "innovation": 100
+    },
+    "createdAt": "2026-09-26T23:24:22.975Z"
+  },
+  {
+    "id": "c892225a-adf6-460e-8f67-3c91132ed7a3",
+    "name": "Simulation en direct",
+    "description": "Simulation dynamique des politiques générée à partir des paramètres actuels.",
+    "policies": {
+      "basicAccess": true,
+      "greenInfra": true,
+      "cooperativeCredit": true,
+      "publicData": false
+    },
+    "metrics": {
+      "growth": 10.6,
+      "trust": 100,
+      "inflation": 1.8,
+      "employment": 98,
+      "utility": 87,
+      "resilience": 88,
+      "inclusion": 100,
+      "capital": 1.7,
+      "productivity": 82,
+      "distribution": 100,
+      "stability": 83,
+      "innovation": 93
+    },
+    "createdAt": "2026-09-26T23:23:55.125Z"
+  },
+  {
+    "id": "scenario-1",
+    "name": "Balanced Growth",
+    "description": "Public services and cooperative financing rise together.",
+    "policies": {
+      "basicAccess": true,
+      "greenInfra": true,
+      "cooperativeCredit": true,
+      "publicData": false
+    },
+    "metrics": {
+      "growth": 8.4,
+      "trust": 94,
+      "inflation": 2.1,
+      "employment": 96,
+      "utility": 91,
+      "resilience": 89,
+      "inclusion": 97,
+      "capital": 1.8,
+      "productivity": 87,
+      "distribution": 90,
+      "stability": 82,
+      "innovation": 94
+    },
+    "createdAt": "2026-09-26T00:00:00.000Z"
+  },
+  {
+    "id": "scenario-2",
+    "name": "Green Transition",
+    "description": "Large investment in clean infrastructure and climate resilience.",
+    "policies": {
+      "basicAccess": true,
+      "greenInfra": true,
+      "cooperativeCredit": false,
+      "publicData": true
+    },
+    "metrics": {
+      "growth": 7.8,
+      "trust": 92,
+      "inflation": 1.8,
+      "employment": 95,
+      "utility": 89,
+      "resilience": 94,
+      "inclusion": 95,
+      "capital": 1.9,
+      "productivity": 85,
+      "distribution": 86,
+      "stability": 90,
+      "innovation": 95
+    },
+    "createdAt": "2026-09-26T00:00:00.000Z"
+  }
+]
