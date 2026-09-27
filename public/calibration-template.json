@@ -1,0 +1,38 @@
+{
+  "metadata": {
+    "source": "EXEMPLE UNIQUEMENT - remplacer par une source officielle",
+    "year": 2025,
+    "currency": "EUR"
+  },
+  "macro": {
+    "gdp": 1000,
+    "taxRevenue": 450,
+    "publicSpending": 480,
+    "publicDebt": 1100,
+    "unemploymentRate": 6,
+    "inflationRate": 2.5,
+    "interestRate": 3.5,
+    "baselineGrowth": 1.5,
+    "taxRateChangePp": 0,
+    "horizonYears": 5,
+    "publicInvestmentPctGdp": 4.5
+  },
+  "budget": {
+    "availableProgramBudgetPctGdp": 2.25
+  },
+  "sectors": [
+    { "id": "energy", "name": "Énergie", "sharePct": 16, "employmentSharePct": 4, "baseGrowthPct": 1 },
+    { "id": "food", "name": "Alimentation", "sharePct": 8, "employmentSharePct": 10, "baseGrowthPct": 1.2 },
+    { "id": "housing", "name": "Logement", "sharePct": 12, "employmentSharePct": 6, "baseGrowthPct": 1.4 },
+    { "id": "education", "name": "Éducation", "sharePct": 6, "employmentSharePct": 12, "baseGrowthPct": 1 },
+    { "id": "health", "name": "Santé", "sharePct": 10, "employmentSharePct": 15, "baseGrowthPct": 1.3 },
+    { "id": "industry", "name": "Industrie", "sharePct": 20, "employmentSharePct": 18, "baseGrowthPct": 1.6 },
+    { "id": "services", "name": "Services", "sharePct": 28, "employmentSharePct": 35, "baseGrowthPct": 1.8 }
+  ],
+  "policies": {
+    "basicAccess": { "costPctGdp": 0.85, "investmentPctGdp": 0.2, "employmentImpactPp": 0.08, "sectorEffects": { "education": 0.45, "health": 0.45, "services": 0.12 } },
+    "greenInfra": { "costPctGdp": 0.9, "investmentPctGdp": 0.72, "employmentImpactPp": 0.12, "sectorEffects": { "energy": 1.1, "housing": 0.1, "industry": 0.18 } },
+    "cooperativeCredit": { "costPctGdp": 0.35, "investmentPctGdp": 0.1, "employmentImpactPp": 0.15, "sectorEffects": { "food": 0.16, "housing": 0.12, "industry": 0.32 } },
+    "publicData": { "costPctGdp": 0.2, "investmentPctGdp": 0.08, "employmentImpactPp": 0.03, "sectorEffects": { "industry": 0.1, "services": 0.3 } }
+  }
+}

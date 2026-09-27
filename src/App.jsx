@@ -23,6 +23,8 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+import { DEFAULT_CALIBRATION, STRESS_SCENARIOS, runEconomicModel, validateCalibration } from './economicsModel.js';
+import { calculateProjectMetrics } from './projectEconomics.js';
 
 const policyConfig = {
   basicAccess: {
@@ -81,15 +83,15 @@ const baseTrend = [
 const roleConfig = {
   admin: {
     label: 'Administrateur',
-    nav: ['dashboard', 'simulation', 'scenarios', 'users'],
+    nav: ['dashboard', 'simulation', 'scenarios', 'projects', 'users'],
   },
   analyst: {
     label: 'Analyste de politiques',
-    nav: ['dashboard', 'simulation', 'scenarios'],
+    nav: ['dashboard', 'simulation', 'scenarios', 'projects'],
   },
   citizen: {
     label: 'Conseiller citoyen',
-    nav: ['dashboard', 'scenarios'],
+    nav: ['dashboard', 'scenarios', 'projects'],
   },
 };
 
@@ -228,6 +230,7 @@ function AppShell({ user, onLogout, children }) {
           {roleConfig[user.role].nav.includes('dashboard') && <Link to="/dashboard">Tableau de bord</Link>}
           {roleConfig[user.role].nav.includes('simulation') && <Link to="/simulation">Simulation</Link>}
           {roleConfig[user.role].nav.includes('scenarios') && <Link to="/scenarios">Scénarios</Link>}
+          {roleConfig[user.role].nav.includes('projects') && <Link to="/projects">Projets</Link>}
           {isAdmin && <Link to="/users">Utilisateurs</Link>}
         </nav>
 
@@ -242,9 +245,11 @@ function AppShell({ user, onLogout, children }) {
   );
 }
 
-function DashboardPage({ policies }) {
+function DashboardPage({ policies, projects }) {
   const metrics = useMemo(() => calculateMetrics(policies), [policies]);
   const indexScore = Number(((metrics.productivity + metrics.distribution + metrics.stability + metrics.innovation) / 4).toFixed(1));
+  const projectsWithReportedResults = projects.filter((project) => project.actualAnnualRevenue != null && project.actualAnnualOperatingCosts != null);
+  const reportedOperatingSurplus = projectsWithReportedResults.reduce((total, project) => total + Number(project.actualAnnualRevenue) - Number(project.actualAnnualOperatingCosts), 0);
 
   const chartData = [
     { name: 'Croissance', value: metrics.growth },
@@ -324,6 +329,18 @@ function DashboardPage({ policies }) {
           <span className="kicker">Inclusion numérique</span>
           <h3>{metrics.inclusion}%</h3>
           <div className="trend down">-0,4% de risque</div>
+        </article>
+
+        <article className="stat-card glass reported-value-card">
+          <span className="kicker">Surplus annuel déclaré</span>
+          <h3>{reportedOperatingSurplus.toLocaleString('fr-FR')} €</h3>
+          <div className="trend">{projectsWithReportedResults.length} projet(s) · données non auditées</div>
+        </article>
+
+        <article className="stat-card glass reported-value-card">
+          <span className="kicker">Projets suivis</span>
+          <h3>{projects.length}</h3>
+          <Link to="/projects" className="trend">Ouvrir le portefeuille</Link>
         </article>
       </section>
 
@@ -423,37 +440,59 @@ function DashboardPage({ policies }) {
   );
 }
 
-function SimulationPage({ policies, setPolicies, scenarios, setScenarios }) {
-  const metrics = useMemo(() => calculateMetrics(policies), [policies]);
+function SimulationPage({ policies, setPolicies, setScenarios }) {
+  const [calibration, setCalibration] = useState(DEFAULT_CALIBRATION);
+  const [stress, setStress] = useState('none');
+  const [calibrationMessage, setCalibrationMessage] = useState('Jeu de démonstration : remplacez-le par des données documentées.');
+  const [calibrationError, setCalibrationError] = useState('');
+  const metrics = useMemo(() => runEconomicModel(calibration, policies, stress), [calibration, policies, stress]);
   const navigate = useNavigate();
-
-  const trendData = [
-    { period: 'T1', value: 62 },
-    { period: 'T2', value: 68 },
-    { period: 'T3', value: 73 },
-    { period: 'T4', value: 80 },
-    { period: 'T5', value: 88 },
-  ];
 
   const handleToggle = (key) => {
     setPolicies((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const handleRunSimulation = async () => {
-    const updatedMetrics = {
-      ...calculateMetrics(policies),
-      growth: Number((metrics.growth + (Math.random() * 1.5 - 0.5)).toFixed(1)),
-      trust: Math.min(100, Math.max(70, metrics.trust + Math.round(Math.random() * 6 - 2))),
-      resilience: Math.min(100, Math.max(70, metrics.resilience + Math.round(Math.random() * 6 - 2))),
-      inclusion: Math.min(100, Math.max(70, metrics.inclusion + Math.round(Math.random() * 7 - 2))),
-    };
+  const updateCalibration = (section, key, value) => {
+    setCalibration((previous) => ({
+      ...previous,
+      [section]: { ...previous[section], [key]: Number(value) },
+    }));
+    setCalibrationMessage('Paramètres modifiés localement; indiquez la source correspondante.');
+  };
 
+  const handleCalibrationImport = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      const imported = validateCalibration(JSON.parse(await file.text()));
+      setCalibration(imported);
+      setCalibrationMessage(`Données chargées : ${imported.metadata.source} (${imported.metadata.year}).`);
+      setCalibrationError('');
+    } catch (error) {
+      setCalibrationError(error.message || 'Fichier de calibration invalide.');
+    }
+    event.target.value = '';
+  };
+
+  const handleRunSimulation = async () => {
     const newScenario = {
-      id: `scenario-${Date.now()}`,
-      name: 'Simulation en direct',
-      description: 'Simulation dynamique des politiques générée à partir des paramètres actuels.',
+      name: `${STRESS_SCENARIOS[stress].label} · ${new Date().toLocaleDateString('fr-FR')}`,
+      description: `Projection sur ${calibration.macro.horizonYears} ans; source : ${calibration.metadata.source}. Résultats illustratifs, non validés par des experts.`,
       policies,
-      metrics: updatedMetrics,
+      metrics: {
+        growth: metrics.growthPct,
+        inflation: metrics.inflationRatePct,
+        employment: metrics.employmentRatePct,
+        unemployment: metrics.unemploymentRatePct,
+        trust: calculateMetrics(policies).trust,
+        resilience: calculateMetrics(policies).resilience,
+        publicDebt: metrics.publicDebt,
+        debtToGdpPct: metrics.debtToGdpPct,
+        taxRevenue: metrics.taxRevenue,
+        publicInvestment: metrics.publicInvestment,
+      },
+      model: { ...metrics, stress, calibration },
+      validation: { status: 'pending', reviews: [] },
       createdAt: new Date().toISOString(),
     };
 
@@ -474,17 +513,67 @@ function SimulationPage({ policies, setPolicies, scenarios, setScenarios }) {
     <main className="content-page">
       <div className="page-header">
         <div>
-          <p className="eyebrow accent">Simulateur de politiques</p>
-          <h2>Exécuter une simulation économique</h2>
+          <p className="eyebrow accent">Modèle multi-sectoriel · projection déterministe</p>
+          <h2>Simulation et arbitrage budgétaire</h2>
         </div>
         <button className="primary-btn" onClick={handleRunSimulation}>Lancer la simulation</button>
       </div>
 
-      <section className="dashboard-grid two-up">
+      <div className="model-disclaimer">
+        <strong>Prototype analytique, non prévision officielle.</strong>
+        <span>Les coefficients par défaut sont illustratifs. Importez des données sourcées et faites examiner les hypothèses avant toute décision publique.</span>
+      </div>
+
+      <section className="panel glass calibration-panel">
+        <div className="panel-header">
+          <span>Calibration des données</span>
+          <a className="ghost-btn small" href="/calibration-template.json" download>Télécharger le modèle JSON</a>
+        </div>
+        <p className="calibration-source">{calibrationMessage}</p>
+        <div className="calibration-actions">
+          <label className="primary-btn import-btn">
+            Importer une calibration JSON
+            <input type="file" accept=".json,application/json" onChange={handleCalibrationImport} />
+          </label>
+          <label className="model-field source-field">
+            <span>Source et référence</span>
+            <input value={calibration.metadata.source} onChange={(event) => setCalibration((previous) => ({ ...previous, metadata: { ...previous.metadata, source: event.target.value } }))} />
+          </label>
+          <label className="model-field">
+            <span>Année de référence</span>
+            <input type="number" value={calibration.metadata.year} onChange={(event) => setCalibration((previous) => ({ ...previous, metadata: { ...previous.metadata, year: Number(event.target.value) } }))} />
+          </label>
+        </div>
+        {calibrationError && <p className="form-error" role="alert">{calibrationError}</p>}
+        <details className="assumptions-details">
+          <summary>Paramètres macroéconomiques et enveloppe</summary>
+          <div className="assumption-grid">
+            {[
+              ['gdp', 'PIB (milliards)'], ['taxRevenue', 'Recettes fiscales (milliards)'],
+              ['publicSpending', 'Dépenses publiques (milliards)'], ['publicDebt', 'Dette publique (milliards)'],
+              ['unemploymentRate', 'Chômage (%)'], ['inflationRate', 'Inflation (%)'],
+              ['interestRate', 'Taux d’intérêt (%)'], ['baselineGrowth', 'Croissance de référence (%)'],
+              ['taxRateChangePp', 'Variation du taux fiscal (points)'], ['horizonYears', 'Horizon (années)'],
+              ['publicInvestmentPctGdp', 'Investissement public (% PIB)'],
+            ].map(([key, label]) => (
+              <label className="model-field" key={key}>
+                <span>{label}</span>
+                <input type="number" step="0.1" value={calibration.macro[key]} onChange={(event) => updateCalibration('macro', key, event.target.value)} />
+              </label>
+            ))}
+            <label className="model-field">
+              <span>Enveloppe de politiques (% PIB)</span>
+              <input type="number" min="0" step="0.1" value={calibration.budget.availableProgramBudgetPctGdp} onChange={(event) => setCalibration((previous) => ({ ...previous, budget: { availableProgramBudgetPctGdp: Number(event.target.value) } }))} />
+            </label>
+          </div>
+        </details>
+      </section>
+
+      <section className="dashboard-grid two-up simulation-inputs">
         <div className="panel glass">
           <div className="panel-header">
-            <span>Pile de politiques</span>
-            <span className="tiny-tag">Adaptatif</span>
+            <span>Leviers et coûts</span>
+            <span className="tiny-tag">Coût en % du PIB</span>
           </div>
 
           <div className="switch-list">
@@ -492,38 +581,96 @@ function SimulationPage({ policies, setPolicies, scenarios, setScenarios }) {
               <label className="switch-row" key={key}>
                 <div>
                   <strong>{value.name}</strong>
-                  <small>{value.description}</small>
+                  <small>{value.description} Coût estimé : {calibration.policies[key].costPctGdp}% du PIB.</small>
                 </div>
                 <input type="checkbox" checked={policies[key]} onChange={() => handleToggle(key)} />
               </label>
             ))}
           </div>
+          <label className="model-field stress-select">
+            <span>Scénario de stress</span>
+            <select value={stress} onChange={(event) => setStress(event.target.value)}>
+              {Object.entries(STRESS_SCENARIOS).map(([key, scenario]) => <option value={key} key={key}>{scenario.label}</option>)}
+            </select>
+          </label>
         </div>
 
         <div className="panel glass">
           <div className="panel-header">
-            <span>Résultat de la simulation</span>
-            <span className="tiny-tag">Projection</span>
+            <span>Projection à {calibration.macro.horizonYears} ans</span>
+            <span className={`tiny-tag ${metrics.budgetStatus === 'rationed' ? 'warning-tag' : ''}`}>
+              {metrics.budgetStatus === 'rationed' ? 'Budget rationné' : 'Dans l’enveloppe'}
+            </span>
           </div>
 
           <div className="metrics-stack">
-            <div className="metric-pill"><span>Croissance</span><strong>{metrics.growth.toFixed(1)}%</strong></div>
-            <div className="metric-pill"><span>Confiance</span><strong>{metrics.trust}</strong></div>
-            <div className="metric-pill"><span>Inflation</span><strong>{metrics.inflation.toFixed(1)}%</strong></div>
-            <div className="metric-pill"><span>Résilience</span><strong>{metrics.resilience}</strong></div>
+            <div className="metric-pill"><span>PIB projeté</span><strong>{metrics.gdp.toLocaleString('fr-FR')} Md</strong></div>
+            <div className="metric-pill"><span>Croissance annuelle</span><strong>{metrics.growthPct}%</strong></div>
+            <div className="metric-pill"><span>Chômage</span><strong>{metrics.unemploymentRatePct}%</strong></div>
+            <div className="metric-pill"><span>Inflation</span><strong>{metrics.inflationRatePct}%</strong></div>
+            <div className="metric-pill"><span>Dette / PIB</span><strong>{metrics.debtToGdpPct}%</strong></div>
+            <div className="metric-pill"><span>Déficit annuel projeté</span><strong>{metrics.annualDeficit.toLocaleString('fr-FR')} Md</strong></div>
+            <div className="metric-pill"><span>Recettes fiscales</span><strong>{metrics.taxRevenue.toLocaleString('fr-FR')} Md</strong></div>
+            <div className="metric-pill"><span>Investissement public</span><strong>{metrics.publicInvestment.toLocaleString('fr-FR')} Md</strong></div>
           </div>
+          <p className="budget-note">
+            Coût demandé : {metrics.requestedCostPctGdp}% du PIB · coût retenu : {metrics.approvedCostPctGdp}% · facteur d’exécution : {Math.round(metrics.implementationScale * 100)}%.
+            Recettes fiscales finales : {metrics.taxRevenueChange > 0 ? '+' : ''}{metrics.taxRevenueChange} Md vs année de référence.
+          </p>
+        </div>
+      </section>
 
+      <section className="dashboard-grid two-up model-analysis-grid">
+        <div className="panel glass">
+          <div className="panel-header"><span>Trajectoire budgétaire</span><span className="tiny-tag">{calibration.metadata.currency} · Md</span></div>
           <div className="chart-box">
-            <ResponsiveContainer width="100%" height={220}>
-              <LineChart data={trendData}>
+            <ResponsiveContainer width="100%" height={250}>
+              <LineChart data={metrics.yearly}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
-                <XAxis dataKey="period" stroke="#9eb6d0" />
+                <XAxis dataKey="year" stroke="#9eb6d0" />
                 <YAxis stroke="#9eb6d0" />
                 <Tooltip />
                 <Legend />
-                <Line type="monotone" dataKey="value" stroke="#ffd166" strokeWidth={3} />
+                <Line type="monotone" dataKey="gdp" name="PIB" stroke="#66f0b4" strokeWidth={2} />
+                <Line type="monotone" dataKey="debt" name="Dette publique" stroke="#ffd166" strokeWidth={2} />
               </LineChart>
             </ResponsiveContainer>
+          </div>
+        </div>
+        <div className="panel glass">
+          <div className="panel-header"><span>Impacts sectoriels</span><span className="tiny-tag">Croissance annuelle (%)</span></div>
+          <div className="sector-model-list">
+            {metrics.sectorResults.map((sector) => (
+              <div className="sector-model-row" key={sector.id}>
+                <span>{sector.name}</span>
+                <div className="bar-track"><span style={{ width: `${Math.max(2, Math.min(100, 50 + sector.growthPct * 10))}%` }} /></div>
+                <strong>{sector.growthPct}%</strong>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="dashboard-grid two-up model-analysis-grid">
+        <div className="panel glass">
+          <div className="panel-header"><span>Analyse de sensibilité</span><span className="tiny-tag">Coefficient d’impact</span></div>
+          <p className="panel-note">Le coefficient varie de 0,5× à 1,5×; les autres hypothèses restent constantes.</p>
+          <div className="sensitivity-table-wrap">
+            <table className="sensitivity-table">
+              <thead><tr><th>Impact</th><th>Croissance</th><th>Chômage</th><th>Dette / PIB</th></tr></thead>
+              <tbody>{metrics.sensitivity.map((row) => (
+                <tr key={row.multiplier}><td>{row.multiplier}×</td><td>{row.growthPct}%</td><td>{row.unemploymentRatePct}%</td><td>{row.debtToGdpPct}%</td></tr>
+              ))}</tbody>
+            </table>
+          </div>
+        </div>
+        <div className="panel glass expert-validation-panel">
+          <div className="panel-header"><span>Revue par des experts</span><span className="warning-tag tiny-tag">Non validé</span></div>
+          <p>Aucune validation indépendante n’est enregistrée. Pour une revue en économie publique, joindre les sources, le millésime, les définitions, les coefficients et les tests de sensibilité.</p>
+          <div className="review-checklist">
+            <span>□ Données et unités vérifiées</span>
+            <span>□ Hypothèses et identification examinées</span>
+            <span>□ Résultats répliqués par un évaluateur indépendant</span>
           </div>
         </div>
       </section>
@@ -533,6 +680,8 @@ function SimulationPage({ policies, setPolicies, scenarios, setScenarios }) {
 
 function ScenariosPage({ scenarios, setScenarios }) {
   const [selectedId, setSelectedId] = useState(scenarios[0]?.id ?? '');
+  const [reviewer, setReviewer] = useState({ name: '', institution: '', expertise: '', verdict: 'with-reservations', comment: '' });
+  const [reviewMessage, setReviewMessage] = useState('');
 
   useEffect(() => {
     if (selectedId === '' && scenarios[0]) setSelectedId(scenarios[0].id);
@@ -551,6 +700,27 @@ function ScenariosPage({ scenarios, setScenarios }) {
     await fetch(`/api/scenarios/${id}`, { method: 'DELETE' });
     const next = scenarios.filter((item) => item.id !== id);
     setScenarios(next);
+  };
+
+  const addExpertReview = async (event) => {
+    event.preventDefault();
+    if (!selectedScenario || !reviewer.name.trim() || !reviewer.institution.trim() || !reviewer.expertise.trim()) return;
+    const review = { ...reviewer, name: reviewer.name.trim(), institution: reviewer.institution.trim(), expertise: reviewer.expertise.trim(), comment: reviewer.comment.trim(), submittedAt: new Date().toISOString() };
+    const validation = { status: 'reviewed', reviews: [...(selectedScenario.validation?.reviews ?? []), review] };
+    try {
+      const response = await fetch(`/api/scenarios/${selectedScenario.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ validation }),
+      });
+      if (!response.ok) throw new Error('La revue n’a pas pu être enregistrée.');
+      const updated = await response.json();
+      setScenarios((current) => current.map((item) => item.id === updated.id ? updated : item));
+      setReviewer({ name: '', institution: '', expertise: '', verdict: 'with-reservations', comment: '' });
+      setReviewMessage('Revue déclarée enregistrée. L’identité et les qualifications restent à vérifier indépendamment.');
+    } catch (error) {
+      setReviewMessage(error.message || 'Erreur lors de l’enregistrement de la revue.');
+    }
   };
 
   return (
@@ -587,6 +757,33 @@ function ScenariosPage({ scenarios, setScenarios }) {
 
               <p>{selectedScenario.description}</p>
 
+              <section className="expert-review-section">
+                <div className="panel-header">
+                  <span>Évaluations déclarées</span>
+                  <span className={`tiny-tag ${selectedScenario.validation?.reviews?.length ? '' : 'warning-tag'}`}>
+                    {selectedScenario.validation?.reviews?.length ? `${selectedScenario.validation.reviews.length} revue(s) déclarée(s)` : 'Aucune revue'}
+                  </span>
+                </div>
+                <p className="panel-note">Les informations ci-dessous sont fournies par les évaluateurs et ne sont pas vérifiées par la plateforme.</p>
+                {(selectedScenario.validation?.reviews ?? []).map((review, index) => (
+                  <article className="review-record" key={`${review.submittedAt}-${index}`}>
+                    <strong>{review.name}</strong>
+                    <span>{review.expertise} · {review.institution}</span>
+                    <span>Conclusion : {review.verdict === 'favorable' ? 'Favorable' : review.verdict === 'with-reservations' ? 'Favorable avec réserves' : 'Révisions nécessaires'}</span>
+                    {review.comment && <p>{review.comment}</p>}
+                  </article>
+                ))}
+                <form className="review-form" onSubmit={addExpertReview}>
+                  <label className="model-field"><span>Nom de l’évaluateur</span><input required value={reviewer.name} onChange={(event) => setReviewer((current) => ({ ...current, name: event.target.value }))} /></label>
+                  <label className="model-field"><span>Institution</span><input required value={reviewer.institution} onChange={(event) => setReviewer((current) => ({ ...current, institution: event.target.value }))} /></label>
+                  <label className="model-field"><span>Expertise en économie publique</span><input required value={reviewer.expertise} onChange={(event) => setReviewer((current) => ({ ...current, expertise: event.target.value }))} /></label>
+                  <label className="model-field"><span>Conclusion déclarée</span><select value={reviewer.verdict} onChange={(event) => setReviewer((current) => ({ ...current, verdict: event.target.value }))}><option value="favorable">Favorable</option><option value="with-reservations">Favorable avec réserves</option><option value="revisions-required">Révisions nécessaires</option></select></label>
+                  <label className="model-field review-comment"><span>Observations</span><textarea rows="3" value={reviewer.comment} onChange={(event) => setReviewer((current) => ({ ...current, comment: event.target.value }))} /></label>
+                  <button className="ghost-btn small" type="submit">Enregistrer une revue déclarée</button>
+                  {reviewMessage && <p className="panel-note" role="status">{reviewMessage}</p>}
+                </form>
+              </section>
+
               <div className="metrics-grid">
                 <div><span>Croissance</span><strong>{selectedScenario.metrics.growth ?? 0}%</strong></div>
                 <div><span>Confiance</span><strong>{selectedScenario.metrics.trust ?? 0}</strong></div>
@@ -621,6 +818,201 @@ function ScenariosPage({ scenarios, setScenarios }) {
           )}
         </div>
       </section>
+    </main>
+  );
+}
+
+const emptyProjectForm = {
+  name: '',
+  sector: 'Énergie',
+  location: '',
+  description: '',
+  investmentRequired: 0,
+  publicFunding: 0,
+  privateFunding: 0,
+  annualRevenue: 0,
+  annualOperatingCosts: 0,
+  jobs: 0,
+  beneficiaries: 0,
+  localProcurementPct: 0,
+  horizonYears: 5,
+  scenarioId: '',
+};
+
+const projectStatusLabels = {
+  idea: 'Idée à étudier',
+  'seeking-funding': 'Recherche de financement',
+  active: 'En activité',
+  completed: 'Terminé',
+};
+
+function ProjectsPage({ projects, setProjects, scenarios }) {
+  const [form, setForm] = useState(emptyProjectForm);
+  const [selectedId, setSelectedId] = useState(projects[0]?.id ?? '');
+  const [actuals, setActuals] = useState({ revenue: '', costs: '', jobs: '', source: '' });
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/projects')
+      .then((response) => response.json())
+      .then((data) => {
+        setProjects(data);
+        if (data[0]) setSelectedId((current) => current || data[0].id);
+      })
+      .catch(() => setError('Impossible de charger les projets. Vérifiez que le serveur API fonctionne.'));
+  }, [setProjects]);
+
+  const selectedProject = projects.find((project) => project.id === selectedId) ?? projects[0];
+  const estimate = selectedProject ? calculateProjectMetrics(selectedProject) : null;
+
+  useEffect(() => {
+    setActuals({
+      revenue: selectedProject?.actualAnnualRevenue ?? '',
+      costs: selectedProject?.actualAnnualOperatingCosts ?? '',
+      jobs: selectedProject?.actualJobs ?? '',
+      source: selectedProject?.actualDataSource ?? '',
+    });
+  }, [selectedProject?.id]);
+
+  const updateForm = (key, value) => {
+    setForm((current) => ({ ...current, [key]: ['investmentRequired', 'publicFunding', 'privateFunding', 'annualRevenue', 'annualOperatingCosts', 'jobs', 'beneficiaries', 'localProcurementPct', 'horizonYears'].includes(key) ? Number(value) : value }));
+  };
+
+  const saveProject = async (event) => {
+    event.preventDefault();
+    setSaving(true);
+    setError('');
+    setMessage('');
+    try {
+      const response = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || 'Le projet n’a pas pu être enregistré.');
+      setProjects((current) => [result, ...current]);
+      setSelectedId(result.id);
+      setForm(emptyProjectForm);
+      setMessage('Projet enregistré. Les projections sont des estimations fournies par son porteur.');
+    } catch (saveError) {
+      setError(saveError.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const updateProject = async (changes) => {
+    if (!selectedProject) return;
+    setError('');
+    try {
+      const response = await fetch(`/api/projects/${selectedProject.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(changes),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || 'Mise à jour impossible.');
+      setProjects((current) => current.map((project) => project.id === result.id ? result : project));
+      setMessage('Projet mis à jour.');
+    } catch (updateError) {
+      setError(updateError.message);
+    }
+  };
+
+  const saveActuals = async (event) => {
+    event.preventDefault();
+    await updateProject({
+      status: selectedProject.status === 'idea' || selectedProject.status === 'seeking-funding' ? 'active' : selectedProject.status,
+      actualAnnualRevenue: Number(actuals.revenue),
+      actualAnnualOperatingCosts: Number(actuals.costs),
+      actualJobs: Number(actuals.jobs),
+      actualDataSource: actuals.source.trim(),
+      measuredAt: new Date().toISOString(),
+    });
+  };
+
+  return (
+    <main className="content-page">
+      <div className="page-header">
+        <div>
+          <p className="eyebrow accent">Des idées aux activités réelles</p>
+          <h2>Projets et création de valeur</h2>
+        </div>
+      </div>
+
+      <div className="model-disclaimer">
+        <strong>Cette page ne traite aucun paiement et ne garantit aucun financement ni bénéfice.</strong>
+        <span>Elle structure des propositions, révèle les besoins de financement et permet de comparer les estimations aux résultats déclarés après lancement.</span>
+      </div>
+
+      <section className="project-workspace">
+        <form className="panel glass project-form" onSubmit={saveProject}>
+          <div className="panel-header"><span>Créer une proposition de projet</span><span className="tiny-tag">Prévisions du porteur</span></div>
+          <label className="model-field"><span>Nom du projet</span><input required value={form.name} onChange={(event) => updateForm('name', event.target.value)} /></label>
+          <div className="project-form-pair">
+            <label className="model-field"><span>Secteur</span><select value={form.sector} onChange={(event) => updateForm('sector', event.target.value)}>{['Énergie', 'Alimentation', 'Logement', 'Éducation', 'Santé', 'Industrie', 'Services', 'Autre'].map((sector) => <option key={sector}>{sector}</option>)}</select></label>
+            <label className="model-field"><span>Ville ou territoire</span><input required value={form.location} onChange={(event) => updateForm('location', event.target.value)} /></label>
+          </div>
+          <label className="model-field"><span>Besoin auquel le projet répond</span><textarea rows="3" value={form.description} onChange={(event) => updateForm('description', event.target.value)} /></label>
+          <label className="model-field"><span>Scénario économique associé (facultatif)</span><select value={form.scenarioId} onChange={(event) => updateForm('scenarioId', event.target.value)}><option value="">Aucun scénario associé</option>{scenarios.map((scenario) => <option key={scenario.id} value={scenario.id}>{scenario.name}</option>)}</select></label>
+          <div className="project-form-pair">
+            <label className="model-field"><span>Investissement initial requis (€)</span><input type="number" min="0" step="1000" required value={form.investmentRequired} onChange={(event) => updateForm('investmentRequired', event.target.value)} /></label>
+            <label className="model-field"><span>Financement public envisagé (€)</span><input type="number" min="0" step="1000" required value={form.publicFunding} onChange={(event) => updateForm('publicFunding', event.target.value)} /></label>
+            <label className="model-field"><span>Financement privé / coopératif (€)</span><input type="number" min="0" step="1000" required value={form.privateFunding} onChange={(event) => updateForm('privateFunding', event.target.value)} /></label>
+            <label className="model-field"><span>Horizon de projection (années)</span><input type="number" min="1" max="30" required value={form.horizonYears} onChange={(event) => updateForm('horizonYears', event.target.value)} /></label>
+            <label className="model-field"><span>Revenus annuels estimés (€)</span><input type="number" min="0" step="1000" required value={form.annualRevenue} onChange={(event) => updateForm('annualRevenue', event.target.value)} /></label>
+            <label className="model-field"><span>Charges annuelles estimées (€)</span><input type="number" min="0" step="1000" required value={form.annualOperatingCosts} onChange={(event) => updateForm('annualOperatingCosts', event.target.value)} /></label>
+            <label className="model-field"><span>Emplois attendus</span><input type="number" min="0" step="1" required value={form.jobs} onChange={(event) => updateForm('jobs', event.target.value)} /></label>
+            <label className="model-field"><span>Ménages bénéficiaires estimés</span><input type="number" min="0" step="1" required value={form.beneficiaries} onChange={(event) => updateForm('beneficiaries', event.target.value)} /></label>
+          </div>
+          <label className="model-field"><span>Part des achats réalisée localement (%)</span><input type="number" min="0" max="100" step="1" required value={form.localProcurementPct} onChange={(event) => updateForm('localProcurementPct', event.target.value)} /></label>
+          <button className="primary-btn" type="submit" disabled={saving}>{saving ? 'Enregistrement…' : 'Enregistrer la proposition'}</button>
+          {message && <p className="panel-note" role="status">{message}</p>}
+          {error && <p className="form-error" role="alert">{error}</p>}
+        </form>
+
+        <section className="project-results">
+          <div className="panel glass project-list-panel">
+            <div className="panel-header"><span>Portefeuille de projets</span><span className="tiny-tag">{projects.length} projet(s)</span></div>
+            {projects.length ? <div className="project-list">{projects.map((project) => (
+              <button type="button" className={`project-item ${project.id === selectedProject?.id ? 'active' : ''}`} key={project.id} onClick={() => setSelectedId(project.id)}>
+                <strong>{project.name}</strong><span>{project.sector} · {project.location}</span><small>{projectStatusLabels[project.status] || project.status}</small>
+              </button>
+            ))}</div> : <p className="panel-note">Aucune proposition pour le moment.</p>}
+          </div>
+
+          {selectedProject && estimate && <div className="panel glass project-detail-panel">
+            <div className="panel-header"><span>{selectedProject.name}</span><label className="model-field status-field"><span>Statut</span><select value={selectedProject.status} onChange={(event) => updateProject({ status: event.target.value })}>{Object.entries(projectStatusLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label></div>
+            <p className="panel-note">{selectedProject.sector} · {selectedProject.location}{selectedProject.description ? ` · ${selectedProject.description}` : ''}</p>
+            <div className="project-metric-grid">
+              <div><span>Besoin d’investissement</span><strong>{selectedProject.investmentRequired.toLocaleString('fr-FR')} €</strong></div>
+              <div><span>Financement à trouver</span><strong>{estimate.fundingGap.toLocaleString('fr-FR')} €</strong></div>
+              <div><span>Couverture financière</span><strong>{estimate.fundingCoveragePct.toFixed(0)}%</strong></div>
+              <div><span>Surplus annuel estimé</span><strong>{estimate.projectedAnnualOperatingSurplus.toLocaleString('fr-FR')} €</strong></div>
+              <div><span>Surplus cumulé estimé</span><strong>{estimate.projectedCumulativeOperatingSurplus.toLocaleString('fr-FR')} €</strong></div>
+              <div><span>Après investissement initial*</span><strong>{estimate.projectedNetAfterInitialInvestment.toLocaleString('fr-FR')} €</strong></div>
+              <div><span>Emplois estimés</span><strong>{selectedProject.jobs}</strong></div>
+              <div><span>Achats locaux estimés</span><strong>{selectedProject.localProcurementPct}%</strong></div>
+            </div>
+            <p className="panel-note">* Somme non actualisée des surplus d’exploitation estimés sur {selectedProject.horizonYears} ans, moins l’investissement initial. Cela ne mesure pas la valeur ajoutée sociale ni une rentabilité garantie.</p>
+            <div className="measured-outcome">
+              <div className="panel-header"><span>Résultats annuels déclarés après lancement</span><span className={`tiny-tag ${estimate.measuredOperatingSurplus == null ? 'warning-tag' : ''}`}>{estimate.measuredOperatingSurplus == null ? 'Non renseignés' : 'Déclarés'}</span></div>
+              {estimate.measuredOperatingSurplus == null ? <p className="panel-note">Saisissez des chiffres observés et indiquez leur source pour distinguer les résultats réels des prévisions.</p> : <div className="measured-surplus"><span>Surplus d’exploitation déclaré</span><strong>{estimate.measuredOperatingSurplus.toLocaleString('fr-FR')} €</strong><small>Source déclarée : {selectedProject.actualDataSource || 'non précisée'} · {selectedProject.measuredAt ? new Date(selectedProject.measuredAt).toLocaleDateString('fr-FR') : ''}</small></div>}
+              <form className="actuals-form" onSubmit={saveActuals}>
+                <label className="model-field"><span>Revenus observés (€ / an)</span><input type="number" min="0" required value={actuals.revenue} onChange={(event) => setActuals((current) => ({ ...current, revenue: event.target.value }))} /></label>
+                <label className="model-field"><span>Charges observées (€ / an)</span><input type="number" min="0" required value={actuals.costs} onChange={(event) => setActuals((current) => ({ ...current, costs: event.target.value }))} /></label>
+                <label className="model-field"><span>Emplois observés</span><input type="number" min="0" required value={actuals.jobs} onChange={(event) => setActuals((current) => ({ ...current, jobs: event.target.value }))} /></label>
+                <label className="model-field"><span>Source des résultats</span><input required value={actuals.source} onChange={(event) => setActuals((current) => ({ ...current, source: event.target.value }))} /></label>
+                <button className="ghost-btn small" type="submit">Enregistrer les résultats déclarés</button>
+              </form>
+            </div>
+          </div>}
+        </section>
+      </section>
+      {error && <p className="form-error" role="alert">{error}</p>}
     </main>
   );
 }
@@ -669,12 +1061,17 @@ function App() {
   const [user, setUser] = useState(null);
   const [policies, setPolicies] = useState(initialPolicies);
   const [scenarios, setScenarios] = useState([]);
+  const [projects, setProjects] = useState([]);
 
   useEffect(() => {
     fetch('/api/scenarios')
       .then((res) => res.json())
       .then((data) => setScenarios(data))
       .catch(() => setScenarios([]));
+    fetch('/api/projects')
+      .then((res) => res.json())
+      .then((data) => setProjects(data))
+      .catch(() => setProjects([]));
   }, []);
 
   const handleLogin = ({ email, role }) => {
@@ -696,7 +1093,7 @@ function App() {
           element={
             <ProtectedRoute allowedRoles={['admin', 'analyst', 'citizen']} role={user?.role}>
               <AppShell user={user} onLogout={handleLogout}>
-                <DashboardPage policies={policies} />
+                <DashboardPage policies={policies} projects={projects} />
               </AppShell>
             </ProtectedRoute>
           }
@@ -707,7 +1104,7 @@ function App() {
           element={
             <ProtectedRoute allowedRoles={['admin', 'analyst']} role={user?.role}>
               <AppShell user={user} onLogout={handleLogout}>
-                <SimulationPage policies={policies} setPolicies={setPolicies} scenarios={scenarios} setScenarios={setScenarios} />
+                <SimulationPage policies={policies} setPolicies={setPolicies} setScenarios={setScenarios} />
               </AppShell>
             </ProtectedRoute>
           }
@@ -719,6 +1116,17 @@ function App() {
             <ProtectedRoute allowedRoles={['admin', 'analyst', 'citizen']} role={user?.role}>
               <AppShell user={user} onLogout={handleLogout}>
                 <ScenariosPage scenarios={scenarios} setScenarios={setScenarios} />
+              </AppShell>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/projects"
+          element={
+            <ProtectedRoute allowedRoles={['admin', 'analyst', 'citizen']} role={user?.role}>
+              <AppShell user={user} onLogout={handleLogout}>
+                <ProjectsPage projects={projects} setProjects={setProjects} scenarios={scenarios} />
               </AppShell>
             </ProtectedRoute>
           }
