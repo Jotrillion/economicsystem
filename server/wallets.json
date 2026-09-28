@@ -1,0 +1,54 @@
+{
+  "wallets": [
+    {
+      "email": "admin@civitas.org",
+      "balance": 10000
+    },
+    {
+      "email": "nia@civitas.org",
+      "balance": 10000
+    },
+    {
+      "email": "milo@civitas.org",
+      "balance": 10000
+    },
+    {
+      "email": "ava@civitas.org",
+      "balance": 10000
+    }
+  ],
+  "transactions": [
+    {
+      "id": "demo-grant-admin",
+      "type": "demo-grant",
+      "toEmail": "admin@civitas.org",
+      "amount": 10000,
+      "memo": "Crédits initiaux de démonstration",
+      "createdAt": "2026-09-27T00:00:00.000Z"
+    },
+    {
+      "id": "demo-grant-nia",
+      "type": "demo-grant",
+      "toEmail": "nia@civitas.org",
+      "amount": 10000,
+      "memo": "Crédits initiaux de démonstration",
+      "createdAt": "2026-09-27T00:00:00.000Z"
+    },
+    {
+      "id": "demo-grant-milo",
+      "type": "demo-grant",
+      "toEmail": "milo@civitas.org",
+      "amount": 10000,
+      "memo": "Crédits initiaux de démonstration",
+      "createdAt": "2026-09-27T00:00:00.000Z"
+    },
+    {
+      "id": "demo-grant-ava",
+      "type": "demo-grant",
+      "toEmail": "ava@civitas.org",
+      "amount": 10000,
+      "memo": "Crédits initiaux de démonstration",
+      "createdAt": "2026-09-27T00:00:00.000Z"
+    }
+  ]
+}

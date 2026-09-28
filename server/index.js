@@ -5,6 +5,7 @@ import path from 'path';
 import { randomUUID } from 'crypto';
 import { fileURLToPath } from 'url';
 import { validateProject } from '../src/projectEconomics.js';
+import { allocateCreditsToProject, getProjectVirtualFunding, getWalletSummary, transferCredits } from '../src/virtualCurrency.js';
 
 const app = express();
 const PORT = 3001;
@@ -13,6 +14,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const dataFilePath = path.join(__dirname, 'scenarios.json');
 const projectsFilePath = path.join(__dirname, 'projects.json');
+const walletsFilePath = path.join(__dirname, 'wallets.json');
 
 app.use(cors());
 app.use(express.json());
@@ -96,6 +98,15 @@ const writeProjects = (projects) => {
   fs.writeFileSync(projectsFilePath, JSON.stringify(projects, null, 2));
 };
 
+const readWalletState = () => {
+  if (!fs.existsSync(walletsFilePath)) fs.writeFileSync(walletsFilePath, JSON.stringify({ wallets: [], transactions: [] }, null, 2));
+  return JSON.parse(fs.readFileSync(walletsFilePath, 'utf8'));
+};
+
+const writeWalletState = (state) => {
+  fs.writeFileSync(walletsFilePath, JSON.stringify(state, null, 2));
+};
+
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, service: 'civitas-api', timestamp: new Date().toISOString() });
 });
@@ -155,7 +166,11 @@ app.delete('/api/scenarios/:id', (req, res) => {
 });
 
 app.get('/api/projects', (req, res) => {
-  res.json(readProjects());
+  const walletState = readWalletState();
+  res.json(readProjects().map((project) => ({
+    ...project,
+    virtualFundingCvc: getProjectVirtualFunding(walletState, project.id),
+  })));
 });
 
 app.post('/api/projects', (req, res) => {
@@ -207,6 +222,52 @@ app.delete('/api/projects/:id', (req, res) => {
   const nextProjects = projects.filter((project) => project.id !== req.params.id);
   writeProjects(nextProjects);
   res.json({ success: true, deletedId: req.params.id });
+});
+
+app.get('/api/wallet', (req, res) => {
+  try {
+    return res.json(getWalletSummary(readWalletState(), req.query.email));
+  } catch (error) {
+    return res.status(400).json({ message: error.message || 'Portefeuille invalide.' });
+  }
+});
+
+app.post('/api/wallet/transfers', (req, res) => {
+  try {
+    const result = transferCredits(readWalletState(), {
+      ...req.body,
+      transactionId: randomUUID(),
+      createdAt: new Date().toISOString(),
+    });
+    writeWalletState(result.state);
+    return res.status(201).json({
+      transaction: result.transaction,
+      wallet: getWalletSummary(result.state, req.body.fromEmail),
+    });
+  } catch (error) {
+    return res.status(400).json({ message: error.message || 'Transfert impossible.' });
+  }
+});
+
+app.post('/api/wallet/project-allocations', (req, res) => {
+  try {
+    const project = readProjects().find((item) => item.id === req.body.projectId);
+    if (!project) return res.status(404).json({ message: 'Projet introuvable.' });
+    const result = allocateCreditsToProject(readWalletState(), {
+      ...req.body,
+      projectName: project.name,
+      transactionId: randomUUID(),
+      createdAt: new Date().toISOString(),
+    });
+    writeWalletState(result.state);
+    return res.status(201).json({
+      transaction: result.transaction,
+      wallet: getWalletSummary(result.state, req.body.fromEmail),
+      projectVirtualFundingCvc: getProjectVirtualFunding(result.state, project.id),
+    });
+  } catch (error) {
+    return res.status(400).json({ message: error.message || 'Allocation virtuelle impossible.' });
+  }
 });
 
 app.listen(PORT, () => {

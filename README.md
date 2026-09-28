@@ -21,6 +21,7 @@ The Vite client runs at `http://localhost:5173` and proxies API requests to the 
 - Scenario persistence and evaluator-declared review records.
 - JSON import for macroeconomic, sector, budget, and policy calibration inputs.
 - Project proposals with funding-gap analysis, estimated operating surplus, job and local-procurement estimates, and separately reported post-launch outcomes.
+- A sandbox CVC wallet with fixed demo balances, peer transfers, project-credit allocations, and a persistent transaction ledger.
 
 ## Real-data calibration
 
@@ -36,13 +37,19 @@ Saved scenarios can contain evaluator-declared reviews with name, institution, e
 
 The **Projets** page records an idea, territory, sector, initial capital requirement, proposed public and private/cooperative funding, estimated annual revenue and operating costs, expected jobs and beneficiaries, and local procurement share. It calculates an unfunded capital gap and simple projected operating surpluses. Once a project is active, users can report observed revenue, costs, and jobs with a stated source. These results are self-declared and not independently audited. The app does not process payments, raise capital, match investors, or guarantee viability.
 
+## Virtual CVC credits
+
+The **Portefeuille CVC** demo uses a fixed set of seeded credits and a local JSON transaction ledger. Demo accounts start with 10,000 CVC; transfers conserve the total supply, and project allocations are recorded separately from euro-denominated real funding. CVC cannot be purchased, withdrawn, redeemed, or converted to fiat. The app has no authentication, custody, blockchain, payment integration, or financial safeguards, so this must not be treated as money or used for real-value transactions.
+
 ## Project structure
 
 - `src/App.jsx` – React interface, policy controls, scenario and review workflows.
 - `src/economicsModel.js` – deterministic sector, fiscal, stress, and sensitivity calculations.
 - `src/projectEconomics.js` – project funding and operating surplus calculations.
+- `src/virtualCurrency.js` – virtual balance, transfer, and allocation rules.
 - `server/index.js` – Express API for saved scenarios and project proposals.
 - `server/scenarios.json` – local JSON scenario store.
 - `server/projects.json` – local JSON project portfolio.
+- `server/wallets.json` – local sandbox credit balances and transaction ledger.
 - `public/calibration-template.json` – importable example schema; values are illustrative.
 - `test/` – focused economic model and project workflow checks.

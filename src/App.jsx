@@ -83,15 +83,15 @@ const baseTrend = [
 const roleConfig = {
   admin: {
     label: 'Administrateur',
-    nav: ['dashboard', 'simulation', 'scenarios', 'projects', 'users'],
+    nav: ['dashboard', 'simulation', 'scenarios', 'projects', 'wallet', 'users'],
   },
   analyst: {
     label: 'Analyste de politiques',
-    nav: ['dashboard', 'simulation', 'scenarios', 'projects'],
+    nav: ['dashboard', 'simulation', 'scenarios', 'projects', 'wallet'],
   },
   citizen: {
     label: 'Conseiller citoyen',
-    nav: ['dashboard', 'scenarios', 'projects'],
+    nav: ['dashboard', 'scenarios', 'projects', 'wallet'],
   },
 };
 
@@ -231,6 +231,7 @@ function AppShell({ user, onLogout, children }) {
           {roleConfig[user.role].nav.includes('simulation') && <Link to="/simulation">Simulation</Link>}
           {roleConfig[user.role].nav.includes('scenarios') && <Link to="/scenarios">Scénarios</Link>}
           {roleConfig[user.role].nav.includes('projects') && <Link to="/projects">Projets</Link>}
+          {roleConfig[user.role].nav.includes('wallet') && <Link to="/wallet">Portefeuille CVC</Link>}
           {isAdmin && <Link to="/users">Utilisateurs</Link>}
         </nav>
 
@@ -822,6 +823,143 @@ function ScenariosPage({ scenarios, setScenarios }) {
   );
 }
 
+const transactionLabels = {
+  'demo-grant': 'Crédits de démonstration',
+  transfer: 'Transfert reçu',
+  'project-allocation': 'Allocation à un projet',
+};
+
+function WalletPage({ user, projects, setProjects }) {
+  const [wallet, setWallet] = useState(null);
+  const [recipientEmail, setRecipientEmail] = useState('');
+  const [transferAmount, setTransferAmount] = useState('');
+  const [transferMemo, setTransferMemo] = useState('');
+  const [selectedProject, setSelectedProject] = useState('');
+  const [projectAmount, setProjectAmount] = useState('');
+  const [projectMemo, setProjectMemo] = useState('');
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const loadWallet = async () => {
+    const response = await fetch(`/api/wallet?email=${encodeURIComponent(user.email)}`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Impossible de charger le portefeuille.');
+    setWallet(data);
+  };
+
+  useEffect(() => {
+    loadWallet().catch((loadError) => setError(loadError.message));
+  }, [user.email]);
+
+  const submitTransaction = async (event, kind) => {
+    event.preventDefault();
+    setSaving(true);
+    setError('');
+    setMessage('');
+    const isTransfer = kind === 'transfer';
+    try {
+      const response = await fetch(`/api/wallet/${isTransfer ? 'transfers' : 'project-allocations'}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(isTransfer
+          ? { fromEmail: user.email, toEmail: recipientEmail, amount: transferAmount, memo: transferMemo }
+          : { fromEmail: user.email, projectId: selectedProject, amount: projectAmount, memo: projectMemo }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || 'Transaction impossible.');
+      setWallet(result.wallet);
+      if (!isTransfer && result.transaction.projectId) {
+        setProjects((current) => current.map((project) => project.id === result.transaction.projectId
+          ? { ...project, virtualFundingCvc: result.projectVirtualFundingCvc }
+          : project));
+      }
+      setMessage(isTransfer ? 'Transfert virtuel enregistré.' : 'Allocation virtuelle au projet enregistrée.');
+      if (isTransfer) {
+        setRecipientEmail('');
+        setTransferAmount('');
+        setTransferMemo('');
+      } else {
+        setProjectAmount('');
+        setProjectMemo('');
+      }
+    } catch (transactionError) {
+      setError(transactionError.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <main className="content-page">
+      <div className="page-header">
+        <div>
+          <p className="eyebrow accent">Monnaie de simulation</p>
+          <h2>Portefeuille Civitas</h2>
+        </div>
+      </div>
+
+      <div className="model-disclaimer wallet-disclaimer">
+        <strong>CVC est une unité virtuelle de démonstration, sans valeur monétaire.</strong>
+        <span>Non achetable, non retirable, non convertible en euros, sans blockchain ni dépôt. Les comptes de démonstration ne sont pas authentifiés et ne doivent contenir aucune donnée financière réelle.</span>
+      </div>
+
+      <section className="wallet-overview">
+        <div className="panel glass wallet-balance">
+          <span className="kicker">Solde virtuel</span>
+          <strong>{wallet ? wallet.balance.toLocaleString('fr-FR') : '…'} <small>CVC</small></strong>
+          <span>{user.email}</span>
+        </div>
+        <div className="wallet-stat">
+          <span>Transactions</span>
+          <strong>{wallet?.transactions.length ?? 0}</strong>
+        </div>
+      </section>
+
+      <section className="dashboard-grid two-up wallet-forms">
+        <form className="panel glass wallet-form" onSubmit={(event) => submitTransaction(event, 'transfer')}>
+          <div className="panel-header"><span>Transférer des crédits</span><span className="tiny-tag">Sans frais · CVC</span></div>
+          <label className="model-field"><span>E-mail du destinataire</span><input type="email" required value={recipientEmail} onChange={(event) => setRecipientEmail(event.target.value)} /></label>
+          <label className="model-field"><span>Montant CVC</span><input type="number" min="0.01" max={wallet?.balance ?? 0} step="0.01" required value={transferAmount} onChange={(event) => setTransferAmount(event.target.value)} /></label>
+          <label className="model-field"><span>Note (facultatif)</span><input maxLength="160" value={transferMemo} onChange={(event) => setTransferMemo(event.target.value)} /></label>
+          <button className="primary-btn" type="submit" disabled={saving || !wallet?.balance}>Envoyer des CVC</button>
+        </form>
+
+        <form className="panel glass wallet-form" onSubmit={(event) => submitTransaction(event, 'project')}>
+          <div className="panel-header"><span>Allouer à un projet</span><span className="tiny-tag">Financement virtuel</span></div>
+          <p className="panel-note">Cette allocation ne modifie pas le financement réel demandé en euros.</p>
+          <label className="model-field"><span>Projet</span><select required value={selectedProject} onChange={(event) => setSelectedProject(event.target.value)}><option value="">Choisir un projet</option>{projects.map((project) => <option value={project.id} key={project.id}>{project.name} · {project.location}</option>)}</select></label>
+          <label className="model-field"><span>Montant CVC</span><input type="number" min="0.01" max={wallet?.balance ?? 0} step="0.01" required value={projectAmount} onChange={(event) => setProjectAmount(event.target.value)} /></label>
+          <label className="model-field"><span>Note (facultatif)</span><input maxLength="160" value={projectMemo} onChange={(event) => setProjectMemo(event.target.value)} /></label>
+          <button className="primary-btn" type="submit" disabled={saving || !wallet?.balance || !projects.length}>Allouer des CVC</button>
+        </form>
+      </section>
+
+      {message && <p className="panel-note" role="status">{message}</p>}
+      {error && <p className="form-error" role="alert">{error}</p>}
+
+      <section className="panel glass wallet-ledger">
+        <div className="panel-header"><span>Historique du portefeuille</span><span className="tiny-tag">Registre de démonstration</span></div>
+        {wallet?.transactions.length ? <div className="ledger-list">{wallet.transactions.map((transaction) => {
+          const incoming = transaction.toEmail === wallet.email;
+          const title = transaction.type === 'project-allocation'
+            ? `${transactionLabels[transaction.type]} · ${transaction.projectName}`
+            : transaction.type === 'transfer'
+              ? incoming ? 'Transfert reçu' : 'Transfert envoyé'
+              : transactionLabels[transaction.type] || 'Transaction CVC';
+          return (
+            <article className="ledger-row" key={transaction.id}>
+              <div><strong>{title}</strong><span>{transaction.memo || (transaction.type === 'transfer' ? `De ${incoming ? transaction.fromEmail : 'vers ' + transaction.toEmail}` : '')}</span></div>
+              <time dateTime={transaction.createdAt}>{new Date(transaction.createdAt).toLocaleDateString('fr-FR')}</time>
+              <strong className={incoming ? 'credit-in' : 'credit-out'}>{incoming ? '+' : '-'}{transaction.amount.toLocaleString('fr-FR')} CVC</strong>
+            </article>
+          );
+        })}</div> : <p className="panel-note">Aucune transaction pour ce compte.</p>}
+      </section>
+    </main>
+  );
+}
+
 const emptyProjectForm = {
   name: '',
   sector: 'Énergie',
@@ -996,6 +1134,7 @@ function ProjectsPage({ projects, setProjects, scenarios }) {
               <div><span>Après investissement initial*</span><strong>{estimate.projectedNetAfterInitialInvestment.toLocaleString('fr-FR')} €</strong></div>
               <div><span>Emplois estimés</span><strong>{selectedProject.jobs}</strong></div>
               <div><span>Achats locaux estimés</span><strong>{selectedProject.localProcurementPct}%</strong></div>
+              <div><span>Allocation virtuelle reçue</span><strong>{Number(selectedProject.virtualFundingCvc || 0).toLocaleString('fr-FR')} CVC</strong></div>
             </div>
             <p className="panel-note">* Somme non actualisée des surplus d’exploitation estimés sur {selectedProject.horizonYears} ans, moins l’investissement initial. Cela ne mesure pas la valeur ajoutée sociale ni une rentabilité garantie.</p>
             <div className="measured-outcome">
@@ -1127,6 +1266,17 @@ function App() {
             <ProtectedRoute allowedRoles={['admin', 'analyst', 'citizen']} role={user?.role}>
               <AppShell user={user} onLogout={handleLogout}>
                 <ProjectsPage projects={projects} setProjects={setProjects} scenarios={scenarios} />
+              </AppShell>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/wallet"
+          element={
+            <ProtectedRoute allowedRoles={['admin', 'analyst', 'citizen']} role={user?.role}>
+              <AppShell user={user} onLogout={handleLogout}>
+                <WalletPage user={user} projects={projects} setProjects={setProjects} />
               </AppShell>
             </ProtectedRoute>
           }
